@@ -1,0 +1,17 @@
+language: php 
+
+php:
+  - 7.0
+  - 7.1
+  - 7.2
+
+notifications:
+  email: 421939022@qq.com
+
+#Compile
+before_script:
+    - ./travis/compile.sh
+
+# Run PHPs run-tests.php 
+script:
+    - ./travis/test.sh
