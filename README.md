@@ -1,7 +1,5 @@
 ## snowflake
 
-<a href="https://travis-ci.org/hikdo/snowflake"><img src="https://travis-ci.org/hikdo/snowflake.svg?branch=master"></a>
-
 An implementation of twitter's snowflake in c , build in php extension.
 
 ### Install
