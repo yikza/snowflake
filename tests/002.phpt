@@ -8,12 +8,7 @@ snowflake.node=3
 <?php 
 $ts = time();
 $id = snowflake_nextid();
-$desc = snowflake_desc($id);
-var_dump(is_array($desc));
-var_dump($desc['node'] == 3);
-var_dump($desc['timestamp'] == $ts);
+var_dump(is_numeric($id));
 ?>
 --EXPECT--
-bool(true)
-bool(true)
 bool(true)
