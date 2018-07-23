@@ -268,14 +268,15 @@ PHP_FUNCTION(snowflake_nextid)
 /* {{{ proto array snowflake_desc(string key) */
 PHP_FUNCTION(snowflake_desc)
 {
-    char *key;
+    char *idstr;
     long ts;
-    int len, node;
+    int node;
+    size_t len;
     uint64_t id;
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s", &key, &len TSRMLS_CC) == FAILURE) {
+    if (zend_parse_parameters(ZEND_NUM_ARGS(), "s", &idstr, &len) == FAILURE) {
         RETURN_FALSE;
     }
-    if (!(id = key2int(key))) {
+    if (!(id = key2int(idstr))) {
         RETURN_FALSE;
     }
     node = (id >> 12) & 0x3FF;
