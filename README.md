@@ -1,4 +1,5 @@
-## snowflake
+## snowflake 
+[![Build Status](https://www.travis-ci.org/hikdo/snowflake.svg?branch=master)](https://www.travis-ci.org/hikdo/snowflake)
 
 An implementation of twitter's snowflake in c , build in php extension.
 
