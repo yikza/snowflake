@@ -32,11 +32,18 @@
 
 int pid  = -1;
 int ncpu = 1;
+int shmid = -1;
+
 atomic_t *lock;
 shmdat_t *shmdat;
 
-
 ZEND_DECLARE_MODULE_GLOBALS(snowflake)
+
+/* {{{ DL support */
+#ifdef COMPILE_DL_SNOWFLAKE
+ZEND_GET_MODULE(snowflake)
+#endif
+/* }}} */
 
 /* {{{ snowflake_functions[] */
 zend_function_entry snowflake_functions[] = {
@@ -48,9 +55,7 @@ zend_function_entry snowflake_functions[] = {
 
 /* {{{ snowflake_module_entry */
 zend_module_entry snowflake_module_entry = {
-#if ZEND_MODULE_API_NO >= 20010901
     STANDARD_MODULE_HEADER,
-#endif
     "snowflake",
     snowflake_functions,
     PHP_MINIT(snowflake),
@@ -58,19 +63,14 @@ zend_module_entry snowflake_module_entry = {
     PHP_RINIT(snowflake),
     NULL,
     PHP_MINFO(snowflake),
-#if ZEND_MODULE_API_NO >= 20010901
     PHP_SNOWFLAKE_VERSION,
-#endif
-    STANDARD_MODULE_PROPERTIES
+    PHP_MODULE_GLOBALS(snowflake),
+    NULL,
+    NULL,
+    NULL,
+    STANDARD_MODULE_PROPERTIES_EX
 };
 /* }}} */
-
-/* {{{ DL support */
-#ifdef COMPILE_DL_SNOWFLAKE
-ZEND_GET_MODULE(snowflake)
-#endif
-/* }}} */
-
 
 /* {{{ PHP_INI */
 PHP_INI_BEGIN()
@@ -114,28 +114,20 @@ static uint64_t key2int(char *key)
 void shmtx_lock(atomic_t *lock, int pid)
 {
     int i, n;
-    //ref nginx 
     for ( ;; ) {
-        if (*lock == 0 && __sync_bool_compare_and_swap(lock, 0, pid))
-	{
+        if (*lock == 0 && __sync_bool_compare_and_swap(lock, 0, pid)) {
             return;
         }
-	/*
-        if (ncpu > 1)
-	{
-            for (n = 1; n < 2048; n << 1)
-	    {
-                for (i = 0; i < n; i++)
-		{
+        if (ncpu > 1) {
+            for (n = 1; n < 2048; n << 1) {
+                for (i = 0; i < n; i++) {
                     __asm("pause");
                 }    
-                if (*lock == 0 && __sync_bool_compare_and_swap(lock, 0, pid))
-		{
+                if (*lock == 0 && __sync_bool_compare_and_swap(lock, 0, pid)) {
                     return;
                 }
             }
         }
-	*/
         sched_yield();
     }
 }
@@ -149,22 +141,18 @@ void shmtx_unlock(atomic_t *lock, int pid)
 
 int snowflake_init()
 {		
-    int shmid;	
-    key_t key = ftok("/sbin/init",0x07);
-		
-    if ((shmid = shmget(key, sizeof(atomic_t) + sizeof(shmdat_t), IPC_CREAT | IPC_EXCL | 0600)) == -1)
-    {
-	if (errno == EEXIST && (shmid = shmget(key, 0, 0)) != -1)
-	{
-	    lock   = (atomic_t *) shmat(shmid, NULL, 0);
-	    shmdat = (shmdat_t *) (lock + sizeof(atomic_t));
-	    if (strcmp(shmdat->name, "snowflake") == 0)
-	    {
-		return SUCCESS;
-	    }
-	}
-	php_error_docref(NULL, E_WARNING, "create shared memory segment failed '%s'", strerror(errno));
-	return FAILURE;		
+    key_t key = ftok("/sbin/init", 0x07);
+    shmid = shmget(key, sizeof(atomic_t) + sizeof(shmdat_t), IPC_CREAT | IPC_EXCL | 0600);	
+    if (shmid == -1) {
+        if (errno == EEXIST && (shmid = shmget(key, 0, 0)) != -1) {
+            lock = (atomic_t *) shmat(shmid, NULL, 0);
+            shmdat = (shmdat_t *) (lock + sizeof(atomic_t));
+            if (strcmp(shmdat->name, "snowflake") == 0) {
+                return SUCCESS;
+            }
+        }
+        php_error_docref(NULL, E_WARNING, "create shared memory segment failed '%s'", strerror(errno));
+        return FAILURE;		
     }		
     lock   = (atomic_t *) shmat(shmid, NULL, 0);
     shmdat = (shmdat_t *) (lock + sizeof(atomic_t));	
@@ -177,12 +165,11 @@ int snowflake_init()
 
 void snowflake_shutdown()
 {
-    if (*(lock) == pid) 
-    {
+    if (*(lock) == pid) {
         shmtx_unlock(lock, pid);
     }
     shmdt((void *)lock);
-    //shmctl(shmid, IPC_RMID, 0);
+    shmctl(shmid, IPC_RMID, NULL);
 }
 
 
@@ -191,26 +178,21 @@ PHP_MINIT_FUNCTION(snowflake)
 {
     ZEND_INIT_MODULE_GLOBALS(snowflake, php_snowflake_init_globals, NULL);	
     REGISTER_INI_ENTRIES();	
-    if (SNOWFLAKE_G(node) < 0)
-    {
+    if (SNOWFLAKE_G(node) < 0) {
         php_error_docref(NULL, E_WARNING, "snowflake.node must greater than 0");
-	return FAILURE;
+        return FAILURE;
     }
-    if (SNOWFLAKE_G(node) > 0x3FF)
-    {
-	php_error_docref(NULL, E_WARNING, "snowflake.node must less than %d", 0x3FF);
-	return FAILURE;
+    if (SNOWFLAKE_G(node) > 0x3FF) {
+        php_error_docref(NULL, E_WARNING, "snowflake.node must less than %d", 0x3FF);
+        return FAILURE;
     }	
-    if(!SNOWFLAKE_G(initialized))
-    {
-	if(snowflake_init() == FAILURE)
-	{
-	    return FAILURE;  
-	}
-    }    
+    if (!SNOWFLAKE_G(initialized)) {
+        if(snowflake_init() == FAILURE) {
+            return FAILURE;
+        }
+    }
     ncpu = sysconf(_SC_NPROCESSORS_ONLN);
-    if (ncpu <= 0) 
-    {
+    if (ncpu <= 0) {
         ncpu = 1;
     }
     SNOWFLAKE_G(initialized) = 1;		
@@ -221,8 +203,7 @@ PHP_MINIT_FUNCTION(snowflake)
 /* {{{ PHP_RINIT_FUNCTION */
 PHP_RINIT_FUNCTION(snowflake)
 {
-    if (pid == -1) 
-    {
+    if (pid == -1) {
         pid = (int)getpid();
     }
     return SUCCESS;
@@ -232,10 +213,9 @@ PHP_RINIT_FUNCTION(snowflake)
 /* {{{ PHP_MSHUTDOWN_FUNCTION */
 PHP_MSHUTDOWN_FUNCTION(snowflake)
 {
-    if(SNOWFLAKE_G(initialized))
-    {
-	snowflake_shutdown();
-	SNOWFLAKE_G(initialized) = 0;
+    if (SNOWFLAKE_G(initialized)) {
+        snowflake_shutdown();
+        SNOWFLAKE_G(initialized) = 0;
     }
     UNREGISTER_INI_ENTRIES();    
     return SUCCESS;
@@ -250,6 +230,7 @@ PHP_MINFO_FUNCTION(snowflake)
     php_info_print_table_start();
     php_info_print_table_header(2, "snowflake support", "enabled");
     php_info_print_table_row(2, "Version", PHP_SNOWFLAKE_VERSION);
+    php_info_print_table_row(2, "Supports", SNOWFLAKE_SUPPORT_EMAIL);
     php_info_print_table_end();
     DISPLAY_INI_ENTRIES();
 }
@@ -259,25 +240,20 @@ PHP_MINFO_FUNCTION(snowflake)
 /* {{{ proto string snowflake_nextid() */
 PHP_FUNCTION(snowflake_nextid)
 {
-    if (SNOWFLAKE_G(initialized) == 0) 
-    {
+    if (SNOWFLAKE_G(initialized) == 0) {
         RETURN_BOOL(0);
     }			
     shmtx_lock(lock, pid);
     int len;
     char *str = NULL;
     uint64_t ts = get_time_in_ms();		
-    if (ts == shmdat->timestamp)
-    {		
-	shmdat->sequence = (shmdat->sequence + 1) & 0xFFF;
-	if(shmdat->sequence == 0)
-	{
-	    ts = till_next_ms(ts);
-	}
-    }
-    else 
-    {
-	shmdat->sequence = 0;
+    if (ts == shmdat->timestamp) {
+        shmdat->sequence = (shmdat->sequence + 1) & 0xFFF;
+        if(shmdat->sequence == 0) {
+            ts = till_next_ms(ts);
+        }
+    } else {
+        shmdat->sequence = 0;
     }	
     shmdat->timestamp = ts;	
     //php_error_docref(NULL, E_NOTICE, "pid:%d,ts:%llu,sequence:%d", pid, ts, shmdat->sequence);	
@@ -294,13 +270,11 @@ PHP_FUNCTION(snowflake_desc)
     uint64_t id;
     char *key;
     int len, node, ts;
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s", &key, &len TSRMLS_CC) == FAILURE)
-    {
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s", &key, &len TSRMLS_CC) == FAILURE) {
         RETURN_FALSE;
     }
-    if(!(id = key2int(key))) 
-    {
-	RETURN_FALSE;
+    if (!(id = key2int(key))) {
+        RETURN_FALSE;
     }
     node = (id >> 12) & 0x3FF;
     ts   = ((id >> 22) + SNOWFLAKE_G(epoch)) / 1000ULL;	

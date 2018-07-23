@@ -20,6 +20,7 @@
 #define PHP_SNOWFLAKE_H
 
 #define PHP_SNOWFLAKE_VERSION "1.0"
+#define SNOWFLAKE_SUPPORT_EMAIL "421939022@qq.com"
 
 extern zend_module_entry snowflake_module_entry;
 #define phpext_snowflake_ptr &snowflake_module_entry
