@@ -24,6 +24,7 @@
 #include <sys/time.h>
 #include <sys/shm.h>
 #include <stdint.h>
+#include <sched.h>
 
 #include "php.h"
 #include "php_ini.h"
@@ -119,7 +120,7 @@ void shmtx_lock(atomic_t *lock, int pid)
             return;
         }
         if (ncpu > 1) {
-            for (n = 1; n < 2048; n << 1) {
+            for (n = 1; n < 2048; n <<= 1) {
                 for (i = 0; i < n; i++) {
                     __asm("pause");
                 }    
@@ -267,9 +268,10 @@ PHP_FUNCTION(snowflake_nextid)
 /* {{{ proto array snowflake_desc(string key) */
 PHP_FUNCTION(snowflake_desc)
 {
-    uint64_t id;
     char *key;
-    int len, node, ts;
+    long ts;
+    int len, node;
+    uint64_t id;
     if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s", &key, &len TSRMLS_CC) == FAILURE) {
         RETURN_FALSE;
     }
@@ -280,7 +282,7 @@ PHP_FUNCTION(snowflake_desc)
     ts   = ((id >> 22) + SNOWFLAKE_G(epoch)) / 1000ULL;	
     array_init(return_value);
     add_assoc_long(return_value, "node", node);
-    add_assoc_double(return_value, "timestamp", ts);    
+    add_assoc_long(return_value, "timestamp", ts);
 }
 /* }}} */
 
